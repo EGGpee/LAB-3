@@ -26,6 +26,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "string.h"
+#include "semphr.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -41,12 +42,47 @@
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
 
+//Lab 3 Macro
+#define LIS3DSH_WHO_AM_I_ADDR                0x0F
+#define LIS3DSH_STAT_ADDR                    0x18
+#define LIS3DSH_CTRL_REG4_ADDR               0x20
+#define LIS3DSH_CTRL_REG1_ADDR               0x21
+#define LIS3DSH_CTRL_REG2_ADDR               0x22
+#define LIS3DSH_CTRL_REG3_ADDR               0x23
+#define LIS3DSH_CTRL_REG5_ADDR               0x24
+#define LIS3DSH_CTRL_REG6_ADDR               0x25
+
+#define LIS3DSH_STATUS_ADDR                  0x27
+
+#define LIS3DSH_OUT_X_L_ADDR                 0x28
+#define LIS3DSH_OUT_X_H_ADDR                 0x29
+#define LIS3DSH_OUT_Y_L_ADDR                 0x2A
+#define LIS3DSH_OUT_Y_H_ADDR                 0x2B
+#define LIS3DSH_OUT_Z_L_ADDR                 0x2C
+#define LIS3DSH_OUT_Z_H_ADDR                 0x2D
+
+#define LIS3DSH_ST1_1_ADDR                   0x40
+#define LIS3DSH_ST1_2_ADDR                   0x41
+#define LIS3DSH_THRS1_1_ADDR                 0x57
+#define LIS3DSH_MASK1_B_ADDR                 0x59
+#define LIS3DSH_MASK1_A_ADDR                 0x5A
+#define LIS3DSH_SETT1_ADDR                   0x5B
+#define LIS3DSH_OUTS1_ADDR                   0x5F
+//Lab 3 Macro
+
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+SPI_HandleTypeDef hspi1;
+
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+
+//Lab 3
+SemaphoreHandle_t xSemaphore;
+uint8_t data;
+//Lab 3
 
 /* USER CODE END PV */
 
@@ -54,13 +90,14 @@ UART_HandleTypeDef huart2;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_SPI1_Init(void);
 /* USER CODE BEGIN PFP */
 
 //Lab 2
-void TaskMonitor_APP(void *pvParameters);
-void Red_LED_App(void *pvParameters);
-void Green_LED_App(void *pvParameters);
-void Delay_App(void *pvParameters);
+//void TaskMonitor_APP(void *pvParameters);
+//void Red_LED_App(void *pvParameters);
+//void Green_LED_App(void *pvParameters);
+//void Delay_App(void *pvParameters);
 //Lab 2
 
 //Lab 1
@@ -113,24 +150,100 @@ void Delay_App(void *pvParameters);
 
 //Lab 2
 
-void USART_Test(void *pvParameters){
-	uint32_t Monitortimer = 400;
-	char MonitorTset[30];
-	char num[15];
-	int i = 0;
-	while(1){
-		memset(MonitorTset,'\0',sizeof(MonitorTset));
-		memset(num,'\0',sizeof(num));
-		itoa(i,num,10);
-		strcat(num," ");
-		sprintf(MonitorTset,"The point is %s\n\r",num);
-		HAL_UART_Transmit(&huart2,(uint8_t *)MonitorTset,strlen(MonitorTset),0xffff);
-		vTaskDelay(Monitortimer);
-		Monitortimer += 1;
-		i += 1;
-	}
+//void USART_Test(void *pvParameters){
+//	uint32_t Monitortimer = 400;
+//	char MonitorTset[30];
+//	char num[15];
+//	int i = 0;
+//	while(1){
+//		memset(MonitorTset,'\0',sizeof(MonitorTset));
+//		memset(num,'\0',sizeof(num));
+//		itoa(i,num,10);
+//		strcat(num," ");
+//		sprintf(MonitorTset,"The point is %s\n\r",num);
+//		HAL_UART_Transmit(&huart2,(uint8_t *)MonitorTset,strlen(MonitorTset),0xffff);
+//		vTaskDelay(Monitortimer);
+//		Monitortimer += 1;
+//		i += 1;
+//	}
+//}
+
+//Lab 3
+void MEMS_Write(uint8_t address,uint8_t data){
+	HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET);
+	HAL_SPI_Transmit(&hspi1,&address,1,10);
+	HAL_SPI_Transmit(&hspi1,&data,1,10);
+	HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3,GPIO_PIN_SET);
 }
 
+void MEMS_Read(uint8_t address,uint8_t *data){
+    address |= 0x80;
+	HAL_GPIO_WritePin(GPIOE,GPIO_PIN_3,GPIO_PIN_RESET);
+	HAL_SPI_Transmit(&hspi1,&address,1,10);
+	HAL_SPI_Receive(&hspi1,data,1,10);
+	HAL_GPIO_WritePin(GPIOE,GPIO_PIN_3,GPIO_PIN_SET);
+}
+
+void sensor_init()
+{
+    MEMS_Write(0x21,0x01);
+    MEMS_Write(0x23,0x48);
+    MEMS_Write(0x20,0x67);
+    MEMS_Write(0x24,0x00);
+    MEMS_Write(0x57,0x55);
+    MEMS_Write(0x40,0x05);
+    MEMS_Write(0x41,0x11);
+    MEMS_Write(0x59,0xFC);
+    MEMS_Write(0x5A,0xFC);
+    MEMS_Write(0x5B,0x01);
+}
+
+void LED_Task(void *pvParameter)
+{
+	for(;;){
+		HAL_GPIO_TogglePin(ledGreen_GPIO_Port, GPIO_PIN_12);
+		vTaskDelay(500/portTICK_RATE_MS);
+	}
+
+}
+
+void vHandlerTask( void *pvParameters )
+{
+
+	for(;;)
+		{
+			/* Take the semaphore */
+			// semaphore was obtained
+			if(xSemaphoreTake(xSemaphore, 0xFFFF)){
+				uint32_t From_Begin_time;
+				// Orange Toggle
+				for(int i = 0; i < 5*2; i++){
+					From_Begin_time = HAL_GetTick();
+					HAL_GPIO_TogglePin(ledOrange_GPIO_Port, GPIO_PIN_13);
+					while(HAL_GetTick()-From_Begin_time < 250/portTICK_RATE_MS){
+						;
+					}
+				}
+				sensor_init();
+			}
+			// reset interrupt register
+		}
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	//Red Toggle
+	HAL_GPIO_TogglePin(ledRed_GPIO_Port, GPIO_PIN_14);
+
+	/* Give the semaphore to unblock the handler task */
+	BaseType_t xHigherPriorityTaskWoken;
+	xHigherPriorityTaskWoken = pdFALSE;
+
+	xSemaphoreGiveFromISR(xSemaphore, &xHigherPriorityTaskWoken);
+	portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
+
+//Lab 3
 
 /* USER CODE END PFP */
 
@@ -168,6 +281,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
+  MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
 
   //Lab 1
@@ -175,11 +289,20 @@ int main(void)
 //  xTaskCreate(LEDTask_App,"LEDTask_App",1000,NULL,1,NULL);
 //  xTaskCreate(buttonSwitch_App,"buttonSwitch_App",1000,NULL,1,NULL);
 
-  xTaskCreate(Red_LED_App,"RedLED",1000,NULL,1,NULL);
-  xTaskCreate(Green_LED_App,"GreLED",1000,NULL,1,NULL);
-  xTaskCreate(Delay_App,"Delay",1000,NULL,14,NULL);
-  xTaskCreate(TaskMonitor_APP,"Monit",1000,NULL,3,NULL);
+  //Lab 2
+//  xTaskCreate(Red_LED_App,"RedLED",1000,NULL,1,NULL);
+//  xTaskCreate(Green_LED_App,"GreLED",1000,NULL,1,NULL);
+//  xTaskCreate(Delay_App,"Delay",1000,NULL,14,NULL);
+//  xTaskCreate(TaskMonitor_APP,"Monit",1000,NULL,3,NULL);
+//  vTaskStartScheduler();
+
+  //Lab 3
+  xSemaphore = xSemaphoreCreateBinary();
+  sensor_init();
+  xTaskCreate(LED_Task,"LED_Task",128,NULL,1,NULL);
+  xTaskCreate(vHandlerTask,"HandlerTask", 1000, NULL, 4, NULL);
   vTaskStartScheduler();
+  //Lab 3
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -240,6 +363,44 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief SPI1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI1_Init(void)
+{
+
+  /* USER CODE BEGIN SPI1_Init 0 */
+
+  /* USER CODE END SPI1_Init 0 */
+
+  /* USER CODE BEGIN SPI1_Init 1 */
+
+  /* USER CODE END SPI1_Init 1 */
+  /* SPI1 parameter configuration*/
+  hspi1.Instance = SPI1;
+  hspi1.Init.Mode = SPI_MODE_MASTER;
+  hspi1.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi1.Init.NSS = SPI_NSS_SOFT;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi1.Init.CRCPolynomial = 10;
+  if (HAL_SPI_Init(&hspi1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI1_Init 2 */
+
+  /* USER CODE END SPI1_Init 2 */
+
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -292,7 +453,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(CS_I2C_SPI_GPIO_Port, CS_I2C_SPI_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_3, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(OTG_FS_PowerSwitchOn_GPIO_Port, OTG_FS_PowerSwitchOn_Pin, GPIO_PIN_SET);
@@ -301,12 +462,12 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOD, ledGreen_Pin|ledOrange_Pin|ledRed_Pin|ledBlue_Pin
                           |Audio_RST_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : CS_I2C_SPI_Pin */
-  GPIO_InitStruct.Pin = CS_I2C_SPI_Pin;
+  /*Configure GPIO pin : PE3 */
+  GPIO_InitStruct.Pin = GPIO_PIN_3;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(CS_I2C_SPI_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
   /*Configure GPIO pin : OTG_FS_PowerSwitchOn_Pin */
   GPIO_InitStruct.Pin = OTG_FS_PowerSwitchOn_Pin;
@@ -336,14 +497,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   GPIO_InitStruct.Alternate = GPIO_AF6_SPI3;
   HAL_GPIO_Init(I2S3_WS_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : SPI1_SCK_Pin SPI1_MISO_Pin SPI1_MOSI_Pin */
-  GPIO_InitStruct.Pin = SPI1_SCK_Pin|SPI1_MISO_Pin|SPI1_MOSI_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : BOOT1_Pin */
   GPIO_InitStruct.Pin = BOOT1_Pin;
@@ -404,11 +557,21 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Alternate = GPIO_AF4_I2C1;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : PE0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
   /*Configure GPIO pin : MEMS_INT2_Pin */
   GPIO_InitStruct.Pin = MEMS_INT2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_EVT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(MEMS_INT2_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 4, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
@@ -417,45 +580,44 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 //Lab 2
-void TaskMonitor_APP(void *pvParameters){
-	for(;;){
-		TaskMonitor();
-		vTaskDelay(1000);
-	}
-}
-
-void Red_LED_App(void *pvParameters){
-	uint32_t Redtimer = 800;
-	for(;;){
-		HAL_GPIO_TogglePin(ledRed_GPIO_Port, GPIO_PIN_14);
-		vTaskDelay(Redtimer);
-		Redtimer+=2;
-	}
-}
-
-void Green_LED_App(void *pvParameters){
-	uint32_t Greentimer = 800;
-	for(;;){
-		HAL_GPIO_TogglePin(ledGreen_GPIO_Port, GPIO_PIN_12);
-		vTaskDelay(Greentimer);
-		Greentimer+=2;
-	}
-}
-void Delay_App(void *pvParameters){
-	int delayflag = 0;
-	uint32_t delaytime;
-	while(1){
-		if(delayflag==0){
-			delaytime = 1000;
-			delayflag = 1;
-		}
-		else{
-			delaytime = 0xFFFFFFFF;
-		}
-		vTaskDelay(delaytime);
-	}
-}
-
+//void TaskMonitor_APP(void *pvParameters){
+//	for(;;){
+//		TaskMonitor();
+//		vTaskDelay(1000);
+//	}
+//}
+//
+//void Red_LED_App(void *pvParameters){
+//	uint32_t Redtimer = 800;
+//	for(;;){
+//		HAL_GPIO_TogglePin(ledRed_GPIO_Port, GPIO_PIN_14);
+//		vTaskDelay(Redtimer);
+//		Redtimer+=2;
+//	}
+//}
+//
+//void Green_LED_App(void *pvParameters){
+//	uint32_t Greentimer = 800;
+//	for(;;){
+//		HAL_GPIO_TogglePin(ledGreen_GPIO_Port, GPIO_PIN_12);
+//		vTaskDelay(Greentimer);
+//		Greentimer+=2;
+//	}
+//}
+//void Delay_App(void *pvParameters){
+//	int delayflag = 0;
+//	uint32_t delaytime;
+//	while(1){
+//		if(delayflag==0){
+//			delaytime = 1000;
+//			delayflag = 1;
+//		}
+//		else{
+//			delaytime = 0xFFFFFFFF;
+//		}
+//		vTaskDelay(delaytime);
+//	}
+//}
 //Lab 2
 
 
